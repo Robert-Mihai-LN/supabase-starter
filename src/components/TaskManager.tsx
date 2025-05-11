@@ -31,6 +31,26 @@ export const TaskManager = ({session} : {session : Session}) => {
   useEffect(() => {
     fetchTasks();
   }, []);
+  useEffect(() => { 
+   // basically now that there are RLS to the tasks and there are policies set in
+   // place so only people with X email can update and delete tasks  we want 
+   // to notify people who are subscribed to a certain channel on the changes for 
+   // this specific tasks table 
+   const tasksChannel = supabase.channel('tasks_channel');
+   tasksChannel.on('postgres_changes',{event:'INSERT',schema:'public',table:'Tasks'},(payload)=> {
+    // basically this will listen to inserts on the Tasks table and the function will be used to 
+    // retrieve the payload 
+    const newTask = payload.new as Task; // this is like trigger.new
+    setTasks((prevTasks) => [...prevTasks, newTask]);
+    }).subscribe((status) => { 
+        // basically this subscribe function will be used to tell us the status of the 
+        // channel subscription and if it is connected or not
+        console.log('Channel status:', status);
+    })
+   // basically this is like a trigger which will help us get the new records that were inserted
+   
+   
+  },[])
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
