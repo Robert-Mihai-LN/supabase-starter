@@ -1,19 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, ChangeEvent } from 'react';
 import { supabase } from '../supabase-client';
 import { Session } from '@supabase/supabase-js';
 // Basically we also need to insert the email so we can only get that
 // from the session object of the current user which is passed from Auth component
 export const TaskManager = ({session} : {session : Session}) => {
   type Task = {
+    image_url: string | undefined;
     id: number;
     title: string;
     description: string;
     created_at: string;
   };
-
+  const [myImage, setMyImage] = useState<File | null>(null);
   const [task, setTask] = useState({ title: '', description: '' });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [description, setDescription] = useState('');
+  const uploadImage = async (file: File ): Promise<string | null> => {
+    const imageName = `${Date.now()}-${file.name}`;
+    // upload the image to the storage bucket
+    const { error } = await supabase.storage
+      .from('task-images')
+      .upload(imageName, file);
+      if (error) {
+        console.error("Error uploading image:", error.message);
+        return null;
+      }
+      // grab the url of the file from storage bucket
+      const {data} = supabase
+      .storage
+      .from('task-images')
+      .getPublicUrl(
+        imageName
+      );
+
+    return data.publicUrl; // Return the public URL of the uploaded image
+  }
 
   const fetchTasks = async () => {
     const { error, data } = await supabase
@@ -51,21 +72,37 @@ export const TaskManager = ({session} : {session : Session}) => {
    
    
   },[])
-
+  const handleFileChange = async (e:ChangeEvent<HTMLInputElement>) => {
+    if(e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      setMyImage(file);
+    }
+  }
   const handleSubmit = async (e: any) => {
     e.preventDefault();
+    let imageUrl: string | null = null;
+    if(myImage){
+        // basically this will be used to upload the current image from input
+        // to the storage bucket in supabase 
+        imageUrl = await uploadImage(myImage); 
+    }
     // basically the RLS specifies we need to insert the email of the user aswell 
     // so we append the email of the user to the current task object,we're basically getting the email of the user from the session object
-    const { error, data } = await supabase.from('Tasks').insert({...task,email: session.user.email}).select();
-    if (error) {
+    const { error, data } = await supabase
+     .from('Tasks')
+     .insert({...task,email: session.user.email,image_url:imageUrl})
+     .select();
+
+     if (error) {
       console.error('Error adding task:', error.message);
       return;
-    }
-    if (data) {
+     }
+     if (data) {
       setTasks((prevTasks) => [...prevTasks, ...data]); // Add the new task to the state
-    }
-    setTask({ title: '', description: '' }); // Reset the form
-  };
+     }
+    
+      setTask({ title: '', description: '' }); // Reset the form
+     };
 
   const updateData = async (id: number) => {
     const { error } = await supabase
@@ -139,7 +176,7 @@ export const TaskManager = ({session} : {session : Session}) => {
           required
           style={{ width: '100%', marginTop: '0.5rem', marginBottom: '1rem', padding: '0.5rem' }}
         />
-
+        <input type="file" accept="image/*" onChange={handleFileChange}/> 
         <button type="submit" style={{ padding: '0.5rem 1rem' }}>
           Add Task
         </button>
@@ -147,9 +184,9 @@ export const TaskManager = ({session} : {session : Session}) => {
 
       {/* Task List */}
       <ul style={{ listStyle: 'none', padding: 0 }}>
-        {tasks.map((task) => (
+        {tasks.map((task,index) => (
           <li
-            key={task.id}
+          key={`${task.id}-${index}`}
             style={{
               border: '1px solid #ddd',
               borderRadius: '5px',
@@ -159,6 +196,7 @@ export const TaskManager = ({session} : {session : Session}) => {
           >
             <p style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>{task.title}</p>
             <p style={{ marginBottom: '1rem' }}>{task.description}</p>
+            <img src={task.image_url} alt="Task" style={{ width: '100%', height: 'auto', marginBottom: '1rem' }} />
             <textarea
               id="description"
               name="description"
